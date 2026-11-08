@@ -1,4 +1,4 @@
-import os,json,re,uuid
+from dotenv import load_dotenv\nload_dotenv()\nimport os,json,re,uuid
 from datetime import datetime,timezone
 from contextlib import asynccontextmanager
 from typing import Optional
