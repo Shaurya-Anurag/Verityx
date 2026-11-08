@@ -5,7 +5,7 @@ type Analysis={id:string;claim:string;status:string;summary:string;freshness_sco
 type Monitor={id:string;query:string;active:boolean|number;created_at:string};
 const API=(import.meta.env.VITE_API_BASE_URL||"http://127.0.0.1:8030/api").replace(/\/$/,"");
 const samples=["Is this vulnerability still unpatched?","Is the source credible?","What changed recently?"];
-const statusLabel=(s:string)=>(({current:"Current",potentially_stale:"Potentially stale",contradicted:"Contradicted",insufficient_evidence:"Insufficient evidence"} as Record<string,string>)[s]||s.replaceAll("_"," "));
+const statusLabel=(s:string)=>(({current:"Current",potentially_stale:"Potentially stale",contradicted:"Contradicted",insufficient_evidence:"Insufficient evidence"} as Record<string,string>)[s]||s.replace(/_/g," "));
 const time=(s:string)=>new Date(s).toLocaleString();
 export default function App(){
  const [tab,setTab]=useState<Tab>("Analyze Claim"),[claim,setClaim]=useState(""),[notice,setNotice]=useState(""),[active,setActive]=useState("Home"),[history,setHistory]=useState<Analysis[]>([]),[selected,setSelected]=useState<Analysis|null>(null),[monitors,setMonitors]=useState<Monitor[]>([]),[health,setHealth]=useState<any>(null),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[monitorQuery,setMonitorQuery]=useState(""),[doc,setDoc]=useState<any>(null);
