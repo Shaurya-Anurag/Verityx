@@ -3,7 +3,7 @@ from datetime import datetime,timezone
 from contextlib import asynccontextmanager
 from typing import Optional
 import httpx
-from fastapi import FastAPI,HTTPException,UploadFile,File
+from fastapi import FastAPI,HTTPException,UploadFile,File,Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel,Field
 from .db import connect,init_db
@@ -70,7 +70,7 @@ async def analyze(body:AnalyzeBody):
   d.execute("INSERT INTO analyses VALUES(?,?,?,?,?,?,?,?,?,?)",(ident,body.claim,result["status"],result["summary"],result["freshness_score"],created,json.dumps(ev),json.dumps(claims),result["method"],result["rationale"]))
  return {"id":ident,"claim":body.claim,"claims":claims,"created_at":created,"evidence":ev,**result}
 @app.get("/api/analyses")
-async def analyses(limit:int=Field(default=50,ge=1,le=200)):
+async def analyses(limit:int=Query(default=50,ge=1,le=200)):
  with connect() as d: rows=d.execute("SELECT * FROM analyses ORDER BY created_at DESC LIMIT ?",(limit,)).fetchall()
  return [rowdict(r) for r in rows]
 @app.get("/api/analyses/{analysis_id}")

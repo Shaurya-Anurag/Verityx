@@ -6,9 +6,9 @@ Verityx is an independent freshness-verification product. It will identify time-
 
 ## Current status
 
-The first release is a responsive React + TypeScript + Vite frontend shell. It includes the Verityx visual identity, classical statue hero artwork, claim-entry interface, freshness overview, recent-analysis area, evidence timeline, system-status panel and illustrative claim records.
+The app now includes a React + TypeScript dashboard and a FastAPI backend with Tavily evidence retrieval, optional Bifrost-assisted assessment, SQLite analysis history, monitor watchlists, document text extraction, audit log, insights and integration health checks.
 
-The frontend is currently a visual/product shell. It does **not** yet perform live claim extraction, Tavily searches or Bifrost inference. Preview records are explicitly marked illustrative; no fake freshness scores are shown.
+Live evidence retrieval requires a Tavily API key. Semantic claim assessment requires a configured Bifrost OpenAI-compatible endpoint and model. Without Bifrost, Verityx stores retrieved evidence but returns `insufficient_evidence` rather than fabricating a verdict. Monitor definitions persist, but scheduled rechecks are not yet implemented.
 
 ## Run
 
@@ -20,7 +20,7 @@ npm install
 npm run dev
 ```
 
-Build with `npm run build`.
+Build with `npm run build`.\n\n## Backend\n\nSee [backend/README.md](backend/README.md). Create `backend/.env` from `.env.example`, install `backend/requirements.txt`, then run `uvicorn app.main:app --reload --port 8030` from the `backend/` directory. API docs: `http://127.0.0.1:8030/docs`.
 
 ## Planned architecture
 
