@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv()
-import os,json,re,uuid
+import os,json,re,uuid,logging
 from datetime import datetime,timezone
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -9,6 +9,8 @@ from fastapi import FastAPI,HTTPException,UploadFile,File,Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel,Field
 from .db import connect,init_db
+
+logger=logging.getLogger(__name__)
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def rowdict(r):
@@ -45,16 +47,27 @@ async def assess(claim,evidence,answer):
   prompt={"claim":claim,"search_answer":answer,"evidence":evidence}
   system='You are Verityx, an evidence-first freshness verifier. Use only supplied evidence. Distinguish current, potentially_stale, contradicted, insufficient_evidence. Stale does not mean false. Contradicted requires credible direct conflict. Return JSON: status, summary, freshness_score (integer 0-100 or null), rationale. Score measures evidence freshness/coverage, never probability of truth. If unsure use insufficient_evidence.'
   try:
-   async with httpx.AsyncClient(timeout=70) as c:
+   async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=10.0)) as c:
     h={"Content-Type":"application/json"}
     if key:h["x-bf-vk"]=key
-    r=await c.post(base+"/chat/completions",headers=h,json={"model":model,"temperature":0.1,"response_format":{"type":"json_object"},"messages":[{"role":"system","content":system},{"role":"user","content":json.dumps(prompt)}]})
+    r=await c.post(
+     base+"/chat/completions",
+     headers=h,
+     json={
+      "model":model,
+      "temperature":0.1,
+      "max_tokens":300,
+      "response_format":{"type":"json_object"},
+      "messages":[{"role":"system","content":system},{"role":"user","content":json.dumps(prompt)}]
+     }
+    )
     r.raise_for_status(); obj=json.loads(r.json()["choices"][0]["message"]["content"])
    if obj.get("status") not in ["current","potentially_stale","contradicted","insufficient_evidence"]: raise ValueError("Invalid status")
    score=obj.get("freshness_score")
    if score is not None: score=max(0,min(100,int(score)))
    return {"status":obj["status"],"summary":str(obj.get("summary","Assessment completed")),"freshness_score":score,"rationale":str(obj.get("rationale","")),"method":"bifrost"}
   except Exception as e:
+   logger.exception("Bifrost assessment failed")
    return {"status":"insufficient_evidence","summary":"Evidence was retrieved, but the configured Bifrost assessment failed. Review sources manually.","freshness_score":None,"rationale":str(e),"method":"retrieval_only"}
  if not evidence:return {"status":"insufficient_evidence","summary":"No evidence was retrieved. The claim remains unresolved.","freshness_score":None,"rationale":"No sources returned.","method":"retrieval_only"}
  return {"status":"insufficient_evidence","summary":"Evidence retrieved. Connect Bifrost to perform semantic comparison; keyword matching is deliberately not used as a truth test.","freshness_score":None,"rationale":"Tavily retrieval completed; semantic assessment is not configured.","method":"retrieval_only"}
