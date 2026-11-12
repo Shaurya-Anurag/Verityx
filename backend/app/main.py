@@ -47,7 +47,7 @@ async def assess(claim,evidence,answer):
   try:
    async with httpx.AsyncClient(timeout=70) as c:
     h={"Content-Type":"application/json"}
-    if key:h["Authorization"]="Bearer "+key
+    if key:h["x-bf-vk"]=key
     r=await c.post(base+"/chat/completions",headers=h,json={"model":model,"temperature":0.1,"response_format":{"type":"json_object"},"messages":[{"role":"system","content":system},{"role":"user","content":json.dumps(prompt)}]})
     r.raise_for_status(); obj=json.loads(r.json()["choices"][0]["message"]["content"])
    if obj.get("status") not in ["current","potentially_stale","contradicted","insufficient_evidence"]: raise ValueError("Invalid status")
@@ -61,7 +61,7 @@ async def assess(claim,evidence,answer):
 
 @app.get("/api/health")
 async def health():
- return {"status":"ok","service":"verityx-api","version":"0.2.0","integrations":{"tavily":bool(os.getenv("TAVILY_API_KEY")),"bifrost":bool(os.getenv("BIFROST_BASE_URL") and os.getenv("BIFROST_MODEL"))},"database":"sqlite"}
+ return {"status":"ok","service":"verityx-api","version":"0.2.0","integrations":{"tavily":bool(os.getenv("TAVILY_API_KEY")),"bifrost":bool(os.getenv("BIFROST_BASE_URL") and os.getenv("BIFROST_MODEL") and os.getenv("BIFROST_API_KEY"))},"database":"sqlite"}
 @app.post("/api/analyze")
 async def analyze(body:AnalyzeBody):
  ev,answer=await search(body.claim,body.max_results)
