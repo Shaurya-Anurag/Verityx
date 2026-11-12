@@ -107,6 +107,19 @@ async def create_monitor(body:MonitorBody):
 async def list_monitors():
  with connect() as d:rows=d.execute("SELECT * FROM monitors ORDER BY created_at DESC").fetchall()
  return [dict(r) for r in rows]
+@app.post("/api/monitors/{monitor_id}/check")
+async def check_monitor(monitor_id:str):
+ with connect() as d: monitor=d.execute("SELECT * FROM monitors WHERE id=?",(monitor_id,)).fetchone()
+ if not monitor: raise HTTPException(404,"Monitor not found")
+ ev,answer=await search(monitor["query"],5)
+ result=await assess(monitor["query"],ev,answer)
+ ident=str(uuid.uuid4()); created=now()
+ claims=[monitor["query"]]
+ with connect() as d:
+  d.execute("INSERT INTO analyses VALUES(?,?,?,?,?,?,?,?,?,?)",(ident,monitor["query"],result["status"],result["summary"],result["freshness_score"],created,json.dumps(ev),json.dumps(claims),result["method"],result["rationale"]))
+  d.execute("UPDATE monitors SET last_checked=?,last_analysis_id=? WHERE id=?",(created,ident,monitor_id))
+ return {"monitor_id":monitor_id,"last_checked":created,"last_analysis_id":ident,"analysis":{"id":ident,"claim":monitor["query"],"claims":claims,"created_at":created,"evidence":ev,**result}}
+
 @app.patch("/api/monitors/{monitor_id}")
 async def toggle_monitor(monitor_id:str):
  with connect() as d:
