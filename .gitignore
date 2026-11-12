@@ -5,3 +5,8 @@ dist/
 .venv/
 __pycache__/
 *.pyc
+
+# Local SQLite databases
+backend/verityx.db
+backend/verityx.db-shm
+backend/verityx.db-wal

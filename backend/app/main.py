@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv()
-import os,json,re,uuid
+import os,json,re,uuid,logging
 from datetime import datetime,timezone
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -9,6 +9,8 @@ from fastapi import FastAPI,HTTPException,UploadFile,File,Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel,Field
 from .db import connect,init_db
+
+logger=logging.getLogger(__name__)
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def rowdict(r):
@@ -45,23 +47,34 @@ async def assess(claim,evidence,answer):
   prompt={"claim":claim,"search_answer":answer,"evidence":evidence}
   system='You are Verityx, an evidence-first freshness verifier. Use only supplied evidence. Distinguish current, potentially_stale, contradicted, insufficient_evidence. Stale does not mean false. Contradicted requires credible direct conflict. Return JSON: status, summary, freshness_score (integer 0-100 or null), rationale. Score measures evidence freshness/coverage, never probability of truth. If unsure use insufficient_evidence.'
   try:
-   async with httpx.AsyncClient(timeout=70) as c:
+   async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=10.0)) as c:
     h={"Content-Type":"application/json"}
-    if key:h["Authorization"]="Bearer "+key
-    r=await c.post(base+"/chat/completions",headers=h,json={"model":model,"temperature":0.1,"response_format":{"type":"json_object"},"messages":[{"role":"system","content":system},{"role":"user","content":json.dumps(prompt)}]})
+    if key:h["x-bf-vk"]=key
+    r=await c.post(
+     base+"/chat/completions",
+     headers=h,
+     json={
+      "model":model,
+      "temperature":0.1,
+      "max_tokens":300,
+      "response_format":{"type":"json_object"},
+      "messages":[{"role":"system","content":system},{"role":"user","content":json.dumps(prompt)}]
+     }
+    )
     r.raise_for_status(); obj=json.loads(r.json()["choices"][0]["message"]["content"])
    if obj.get("status") not in ["current","potentially_stale","contradicted","insufficient_evidence"]: raise ValueError("Invalid status")
    score=obj.get("freshness_score")
    if score is not None: score=max(0,min(100,int(score)))
    return {"status":obj["status"],"summary":str(obj.get("summary","Assessment completed")),"freshness_score":score,"rationale":str(obj.get("rationale","")),"method":"bifrost"}
   except Exception as e:
+   logger.exception("Bifrost assessment failed")
    return {"status":"insufficient_evidence","summary":"Evidence was retrieved, but the configured Bifrost assessment failed. Review sources manually.","freshness_score":None,"rationale":str(e),"method":"retrieval_only"}
  if not evidence:return {"status":"insufficient_evidence","summary":"No evidence was retrieved. The claim remains unresolved.","freshness_score":None,"rationale":"No sources returned.","method":"retrieval_only"}
  return {"status":"insufficient_evidence","summary":"Evidence retrieved. Connect Bifrost to perform semantic comparison; keyword matching is deliberately not used as a truth test.","freshness_score":None,"rationale":"Tavily retrieval completed; semantic assessment is not configured.","method":"retrieval_only"}
 
 @app.get("/api/health")
 async def health():
- return {"status":"ok","service":"verityx-api","version":"0.2.0","integrations":{"tavily":bool(os.getenv("TAVILY_API_KEY")),"bifrost":bool(os.getenv("BIFROST_BASE_URL") and os.getenv("BIFROST_MODEL"))},"database":"sqlite"}
+ return {"status":"ok","service":"verityx-api","version":"0.2.0","integrations":{"tavily":bool(os.getenv("TAVILY_API_KEY")),"bifrost":bool(os.getenv("BIFROST_BASE_URL") and os.getenv("BIFROST_MODEL") and os.getenv("BIFROST_API_KEY"))},"database":"sqlite"}
 @app.post("/api/analyze")
 async def analyze(body:AnalyzeBody):
  ev,answer=await search(body.claim,body.max_results)
@@ -94,6 +107,19 @@ async def create_monitor(body:MonitorBody):
 async def list_monitors():
  with connect() as d:rows=d.execute("SELECT * FROM monitors ORDER BY created_at DESC").fetchall()
  return [dict(r) for r in rows]
+@app.post("/api/monitors/{monitor_id}/check")
+async def check_monitor(monitor_id:str):
+ with connect() as d: monitor=d.execute("SELECT * FROM monitors WHERE id=?",(monitor_id,)).fetchone()
+ if not monitor: raise HTTPException(404,"Monitor not found")
+ ev,answer=await search(monitor["query"],5)
+ result=await assess(monitor["query"],ev,answer)
+ ident=str(uuid.uuid4()); created=now()
+ claims=[monitor["query"]]
+ with connect() as d:
+  d.execute("INSERT INTO analyses VALUES(?,?,?,?,?,?,?,?,?,?)",(ident,monitor["query"],result["status"],result["summary"],result["freshness_score"],created,json.dumps(ev),json.dumps(claims),result["method"],result["rationale"]))
+  d.execute("UPDATE monitors SET last_checked=?,last_analysis_id=? WHERE id=?",(created,ident,monitor_id))
+ return {"monitor_id":monitor_id,"last_checked":created,"last_analysis_id":ident,"analysis":{"id":ident,"claim":monitor["query"],"claims":claims,"created_at":created,"evidence":ev,**result}}
+
 @app.patch("/api/monitors/{monitor_id}")
 async def toggle_monitor(monitor_id:str):
  with connect() as d:
